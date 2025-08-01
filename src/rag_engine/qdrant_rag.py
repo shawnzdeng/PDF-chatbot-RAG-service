@@ -748,7 +748,8 @@ Answer:"""
                     "source": doc.metadata.get("source", f"Document {i}"),
                     "page": doc.metadata.get("page"),
                     "relevance_score": doc.score,
-                    "excerpt": doc.content[:150] + "..." if len(doc.content) > 150 else doc.content
+                    "excerpt": doc.content[:150] + "..." if len(doc.content) > 150 else doc.content,
+                    "full_content": doc.content  # Include full content for detailed view
                 }
                 detailed_sources.append(source_info)
                 

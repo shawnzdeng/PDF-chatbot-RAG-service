@@ -105,7 +105,7 @@ def get_document_metadata():
         logger.error(f"Error getting document metadata: {e}")
         return {}
 
-def display_chat_message(role: str, content: str, sources: List[Dict] = None, detailed_sources: List[Dict] = None):
+def display_chat_message(role: str, content: str, sources: List[Dict] = None, detailed_sources: List[Dict] = None, message_index: int = 0):
     """Display a chat message with sources"""
     message_class = "user-message" if role == "user" else "assistant-message"
     
@@ -128,9 +128,29 @@ def display_chat_message(role: str, content: str, sources: List[Dict] = None, de
                         st.markdown(f"*Page {source['page']}*")
                     st.markdown(f"**Relevance Score:** {source['relevance_score']:.3f}")
                     
-                    # Show excerpt in a collapsible section
-                    with st.expander(f"📄 Document Excerpt {i}", expanded=False):
-                        st.markdown(f"```\n{source['excerpt']}\n```")
+                    # Show preview excerpt
+                    st.markdown(f"**Preview:** {source['excerpt']}")
+                    
+                    # Show full chunk content in a collapsible section
+                    with st.expander(f"📄 View Full Document Chunk {i}", expanded=False):
+                        # Show the full content if available, otherwise fall back to excerpt
+                        full_content = source.get('full_content', source.get('content', source['excerpt']))
+                        
+                        # Add some stats about the content
+                        char_count = len(full_content)
+                        word_count = len(full_content.split())
+                        st.markdown(f"*Content length: {char_count} characters, {word_count} words*")
+                        
+                        # Display the content in a text area for better readability
+                        # Create a unique key using message index, source index, and source info
+                        unique_key = f"content_msg{message_index}_src{i}_{source.get('rank', 'unknown')}_{hash(source.get('source', ''))}"
+                        st.text_area(
+                            f"Full content from source {i}:",
+                            value=full_content,
+                            height=300,
+                            disabled=True,
+                            key=unique_key
+                        )
                     
                     if i < len(detailed_sources):
                         st.divider()
@@ -187,7 +207,7 @@ def display_sidebar():
                 logger.error(f"Error getting conversation stats: {e}")
         
         # System configuration
-        if st.expander("⚙️ Configuration", expanded=False):
+        with st.expander("⚙️ Configuration", expanded=False):
             if 'rag_system' in st.session_state and st.session_state.rag_system:
                 try:
                     config = st.session_state.rag_system.get_current_config()
@@ -272,12 +292,13 @@ def main():
         
         # Display chat messages
         with chat_container:
-            for message in st.session_state.messages:
+            for idx, message in enumerate(st.session_state.messages):
                 display_chat_message(
                     message["role"], 
                     message["content"],
                     sources=message.get("sources"),
-                    detailed_sources=message.get("detailed_sources")
+                    detailed_sources=message.get("detailed_sources"),
+                    message_index=idx
                 )
         
         # Chat input

@@ -4,6 +4,8 @@ Provides question-answering capabilities over PDF documents
 """
 
 import logging
+import sys
+from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
@@ -14,7 +16,13 @@ from langchain_core.runnables import RunnablePassthrough
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 
+# Add parent directory to path for config import
+parent_dir = Path(__file__).parent.parent.parent
+if str(parent_dir) not in sys.path:
+    sys.path.insert(0, str(parent_dir))
+
 from config import Config
+from .conversation_memory import ConversationMemory
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +45,10 @@ class QdrantRAG:
                  prompt_template: str = None,
                  score_threshold: float = 0.3,
                  enable_reranking: bool = True,
-                 reranking_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
+                 reranking_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+                 enable_conversation_memory: bool = True,
+                 memory_max_turns: int = 10,
+                 memory_summarization_threshold: int = 8):
         """
         Initialize RAG system
         
@@ -51,6 +62,9 @@ class QdrantRAG:
             score_threshold: Minimum similarity threshold for document retrieval
             enable_reranking: Whether to use document reranking for improved relevance
             reranking_model: Cross-encoder model for reranking
+            enable_conversation_memory: Whether to enable conversation memory for continuous conversations
+            memory_max_turns: Maximum number of conversation turns to keep in active memory
+            memory_summarization_threshold: Number of turns before triggering memory summarization
         """
         Config.validate_env_vars()
         
@@ -75,12 +89,26 @@ class QdrantRAG:
         self.score_threshold = score_threshold
         self.enable_reranking = enable_reranking
         self.reranking_model = reranking_model
+        self.enable_conversation_memory = enable_conversation_memory
+        self.memory_max_turns = memory_max_turns
+        self.memory_summarization_threshold = memory_summarization_threshold
+        
+        # Initialize conversation memory if enabled
+        if self.enable_conversation_memory:
+            self.conversation_memory = ConversationMemory(
+                max_turns=memory_max_turns,
+                summarization_threshold=memory_summarization_threshold,
+                enable_summarization=True
+            )
+            logger.info(f"Conversation memory enabled with max_turns={memory_max_turns}")
+        else:
+            self.conversation_memory = None
         
         # Initialize reranker if enabled
         if self.enable_reranking:
             try:
                 from .reranker import DocumentReranker, RerankingConfig
-                rerank_config = RerankingConfig.from_parameters_config()
+                rerank_config = RerankingConfig.from_production_config()
                 # Override top_k_after_rerank with the RAG system's top_k
                 rerank_config.top_k_after_rerank = top_k
                 # Respect the top_k_before_rerank from config instead of overriding
@@ -137,12 +165,15 @@ class QdrantRAG:
                            embedding_model: str = None,
                            llm_model: str = None,
                            temperature: float = None,
-                           top_k: int = 5,
+                           top_k: int = None,
                            prompt_template: str = None,
-                           score_threshold: float = 0.3,
-                           enable_reranking: bool = True):
+                           score_threshold: float = None,
+                           enable_reranking: bool = None,
+                           enable_conversation_memory: bool = True,
+                           memory_max_turns: int = 10,
+                           memory_summarization_threshold: int = 8):
         """
-        Create QdrantRAG instance with default fallbacks for testing purposes
+        Create QdrantRAG instance with defaults from production config
         
         Args:
             collection_name: Qdrant collection name
@@ -153,12 +184,18 @@ class QdrantRAG:
             prompt_template: Custom prompt template for RAG
             score_threshold: Minimum similarity threshold for document retrieval
             enable_reranking: Whether to enable document reranking
+            enable_conversation_memory: Whether to enable conversation memory
+            memory_max_turns: Maximum number of conversation turns to keep
+            memory_summarization_threshold: Number of turns before summarization
         """
-        # Use defaults only if not provided
-        collection_name = collection_name or Config.DEFAULT_COLLECTION_NAME
-        embedding_model = embedding_model or "text-embedding-3-large"
-        llm_model = llm_model or "gpt-4o"
-        temperature = temperature if temperature is not None else 0.0
+        # Use production config values as defaults
+        collection_name = collection_name or (Config.qdrant_config.collection_name if Config.qdrant_config else Config.DEFAULT_COLLECTION_NAME)
+        embedding_model = embedding_model or (Config.rag_config.embedding_model if Config.rag_config else "text-embedding-3-large")
+        llm_model = llm_model or (Config.rag_config.llm_model if Config.rag_config else "gpt-4o")
+        temperature = temperature if temperature is not None else (Config.rag_config.temperature if Config.rag_config else 0.0)
+        top_k = top_k if top_k is not None else (Config.rag_config.top_k_retrieval if Config.rag_config else 5)
+        score_threshold = score_threshold if score_threshold is not None else (Config.reranker_config.score_threshold if Config.reranker_config else 0.3)
+        enable_reranking = enable_reranking if enable_reranking is not None else (Config.reranker_config.enabled if Config.reranker_config else True)
         prompt_template = prompt_template or cls._get_default_prompt_template_static()
         
         return cls(
@@ -169,7 +206,56 @@ class QdrantRAG:
             top_k=top_k,
             prompt_template=prompt_template,
             score_threshold=score_threshold,
-            enable_reranking=enable_reranking
+            enable_reranking=enable_reranking,
+            enable_conversation_memory=enable_conversation_memory,
+            memory_max_turns=memory_max_turns,
+            memory_summarization_threshold=memory_summarization_threshold
+        )
+    
+    @classmethod
+    def from_production_config(cls) -> 'QdrantRAG':
+        """
+        Create QdrantRAG instance using production configuration
+        
+        Returns:
+            QdrantRAG instance configured with production parameters
+        """
+        if not Config.is_production_ready():
+            logger.warning("Production config is not marked as ready. Proceeding anyway...")
+        
+        # Get configuration from production config
+        collection_name = Config.qdrant_config.collection_name if Config.qdrant_config else Config.DEFAULT_COLLECTION_NAME
+        embedding_model = Config.rag_config.embedding_model if Config.rag_config else "text-embedding-3-large"
+        llm_model = Config.rag_config.llm_model if Config.rag_config else "gpt-4o"
+        temperature = Config.rag_config.temperature if Config.rag_config else 0.0
+        top_k = Config.rag_config.top_k_retrieval if Config.rag_config else 5
+        score_threshold = Config.reranker_config.score_threshold if Config.reranker_config else 0.3
+        enable_reranking = Config.reranker_config.enabled if Config.reranker_config else True
+        
+        # Use default prompt template
+        prompt_template = cls._get_default_prompt_template_static()
+        
+        logger.info("Creating QdrantRAG from production configuration")
+        
+        # Log production metrics if available
+        metrics = Config.get_production_metrics()
+        if metrics:
+            logger.info(f"Production metrics - Composite Score: {metrics.get('composite_score', 'N/A'):.3f}, "
+                       f"Faithfulness: {metrics.get('faithfulness', 'N/A'):.3f}, "
+                       f"Answer Relevancy: {metrics.get('answer_relevancy', 'N/A'):.3f}")
+        
+        return cls(
+            collection_name=collection_name,
+            embedding_model=embedding_model,
+            llm_model=llm_model,
+            temperature=temperature,
+            top_k=top_k,
+            prompt_template=prompt_template,
+            score_threshold=score_threshold,
+            enable_reranking=enable_reranking,
+            enable_conversation_memory=True,  # Enable by default for production
+            memory_max_turns=10,
+            memory_summarization_threshold=8
         )
     
     @classmethod
@@ -229,6 +315,7 @@ Answer:"""
 
     def _create_prompt_template(self) -> ChatPromptTemplate:
         """Create the prompt template for RAG"""
+        # Always use the original template since conversation context is handled dynamically
         return ChatPromptTemplate.from_template(self.prompt_template_str)
     
     def embed_query(self, query: str) -> List[float]:
@@ -344,41 +431,104 @@ Answer:"""
         
         return "\n".join(context_parts)
     
-    def generate_answer(self, query: str, context: str) -> str:
+    def generate_answer(self, query: str, context: str, use_conversation_memory: bool = True) -> str:
         """
-        Generate answer using LLM
+        Generate answer using LLM with optional conversation memory
         
         Args:
             query: User question
             context: Retrieved context
+            use_conversation_memory: Whether to include conversation context
             
         Returns:
             Generated answer
         """
         try:
-            # Create the chain
-            chain = (
-                {"context": RunnablePassthrough(), "question": RunnablePassthrough()}
-                | self.prompt_template
-                | self.llm
-                | StrOutputParser()
-            )
+            # Get conversation context if enabled
+            conversation_context = ""
+            has_conversation_context = False
             
-            # Generate answer
-            answer = chain.invoke({"context": context, "question": query})
+            if (use_conversation_memory and 
+                self.enable_conversation_memory and 
+                self.conversation_memory and 
+                self.conversation_memory.has_conversation_history()):
+                
+                conversation_context = self.conversation_memory.get_conversation_context(
+                    current_question=query,
+                    include_summaries=True,
+                    max_recent_turns=3
+                )
+                has_conversation_context = bool(conversation_context.strip())
+            
+            # Choose the appropriate prompt template and chain based on conversation context
+            if has_conversation_context:
+                # Use conversation-aware template
+                enhanced_template = """You are a helpful AI assistant that answers questions based on provided documents and conversation history.
+
+{conversation_context}
+
+Context from documents:
+{context}
+
+Question: {question}
+
+Instructions:
+1. Answer the question based ONLY on the information provided in the context and any relevant conversation history
+2. If the answer is not found in the context, clearly state "I don't have enough information in the provided documents to answer this question"
+3. Be concise and accurate
+4. If relevant, mention which part of the document the information comes from
+5. Consider the conversation history to provide contextual and coherent responses
+6. If the question refers to something mentioned earlier in the conversation, acknowledge that context
+
+Answer:"""
+                
+                from langchain.prompts import ChatPromptTemplate
+                conv_prompt_template = ChatPromptTemplate.from_template(enhanced_template)
+                
+                # Create conversation-aware chain
+                chain = (
+                    {
+                        "context": RunnablePassthrough(), 
+                        "question": RunnablePassthrough(),
+                        "conversation_context": RunnablePassthrough()
+                    }
+                    | conv_prompt_template
+                    | self.llm
+                    | StrOutputParser()
+                )
+                
+                # Generate answer with conversation context
+                answer = chain.invoke({
+                    "context": context, 
+                    "question": query,
+                    "conversation_context": conversation_context
+                })
+            else:
+                # Use original template without conversation context
+                chain = (
+                    {"context": RunnablePassthrough(), "question": RunnablePassthrough()}
+                    | self.prompt_template
+                    | self.llm
+                    | StrOutputParser()
+                )
+                
+                # Generate answer
+                answer = chain.invoke({"context": context, "question": query})
+            
             return answer.strip()
             
         except Exception as e:
             logger.error(f"Error generating answer: {e}")
             return f"Error generating answer: {str(e)}"
     
-    def answer_question(self, question: str, top_k: int = None) -> Dict[str, Any]:
+    def answer_question(self, question: str, top_k: int = None, save_to_memory: bool = True) -> Dict[str, Any]:
         """
-        Complete RAG pipeline: retrieve and generate answer
+        Complete RAG pipeline: retrieve and generate answer with conversation memory
         
         Args:
             question: User question
             top_k: Number of documents to retrieve
+            save_to_memory: Whether to save this interaction to conversation memory
             
         Returns:
             Dictionary with answer, context, and metadata
@@ -390,8 +540,31 @@ Answer:"""
             # Format context
             context = self.format_context(retrieved_docs)
             
-            # Generate answer
-            answer = self.generate_answer(question, context)
+            # Generate answer with conversation awareness
+            answer = self.generate_answer(question, context, use_conversation_memory=True)
+            
+            # Save to conversation memory if enabled
+            if (save_to_memory and 
+                self.enable_conversation_memory and 
+                self.conversation_memory):
+                
+                sources = [doc.metadata.get("source", "") for doc in retrieved_docs]
+                self.conversation_memory.add_turn(
+                    user_message=question,
+                    assistant_response=answer,
+                    retrieved_context=context,
+                    sources=sources,
+                    metadata={
+                        "retrieved_documents": len(retrieved_docs),
+                        "average_relevance_score": sum(doc.score for doc in retrieved_docs) / len(retrieved_docs) if retrieved_docs else 0,
+                        "model_params": {
+                            "llm_model": self.llm_model,
+                            "embedding_model": self.embedding_model,
+                            "temperature": self.temperature,
+                            "top_k": top_k or self.top_k
+                        }
+                    }
+                )
             
             # Calculate average relevance score
             avg_score = sum(doc.score for doc in retrieved_docs) / len(retrieved_docs) if retrieved_docs else 0
@@ -411,6 +584,10 @@ Answer:"""
                     "prompt_template": self.prompt_template_str
                 }
             }
+            
+            # Add conversation memory stats if enabled
+            if self.enable_conversation_memory and self.conversation_memory:
+                result["conversation_stats"] = self.conversation_memory.get_memory_stats()
             
             logger.info(f"Generated answer for question with {len(retrieved_docs)} retrieved docs")
             return result
@@ -474,7 +651,7 @@ Answer:"""
 
     def get_current_config(self) -> Dict[str, Any]:
         """
-        Get current RAG configuration including reranking settings
+        Get current RAG configuration including reranking settings and production info
         
         Returns:
             Dictionary with current configuration
@@ -487,7 +664,10 @@ Answer:"""
             "top_k": self.top_k,
             "score_threshold": self.score_threshold,
             "enable_reranking": self.enable_reranking,
-            "reranking_model": self.reranking_model
+            "reranking_model": self.reranking_model,
+            "enable_conversation_memory": self.enable_conversation_memory,
+            "memory_max_turns": self.memory_max_turns,
+            "memory_summarization_threshold": self.memory_summarization_threshold
         }
         
         # Add reranking configuration if available
@@ -501,6 +681,18 @@ Answer:"""
                 "cross_encoder_weight": rerank_config.cross_encoder_weight,
                 "embedding_weight": rerank_config.embedding_weight
             }
+        
+        # Add production configuration information
+        # Add conversation memory stats if enabled
+        if self.enable_conversation_memory and self.conversation_memory:
+            config["conversation_memory_stats"] = self.conversation_memory.get_memory_stats()
+        
+        config["production_info"] = {
+            "is_production_ready": Config.is_production_ready(),
+            "performance_metrics": Config.get_production_metrics(),
+            "optimization_info": Config.get_optimization_info(),
+            "document_metadata": Config.get_document_metadata()
+        }
         
         return config
 
@@ -518,12 +710,145 @@ Answer:"""
         except Exception as e:
             logger.error(f"Error getting collection stats: {e}")
             return {}
+    
+    # Conversation Management Methods
+    
+    def start_conversation(self, conversation_id: str = None) -> str:
+        """
+        Start a new conversation session
+        
+        Args:
+            conversation_id: Optional custom conversation ID
+            
+        Returns:
+            Conversation ID
+        """
+        if not self.enable_conversation_memory or not self.conversation_memory:
+            logger.warning("Conversation memory is not enabled")
+            return None
+            
+        return self.conversation_memory.start_new_conversation(conversation_id)
+    
+    def clear_conversation_memory(self) -> None:
+        """Clear all conversation memory"""
+        if self.enable_conversation_memory and self.conversation_memory:
+            self.conversation_memory.clear_memory()
+            logger.info("Conversation memory cleared")
+        else:
+            logger.warning("Conversation memory is not enabled")
+    
+    def get_conversation_history(self) -> Dict[str, Any]:
+        """
+        Get current conversation history and statistics
+        
+        Returns:
+            Dictionary with conversation history and stats
+        """
+        if not self.enable_conversation_memory or not self.conversation_memory:
+            return {"error": "Conversation memory is not enabled"}
+        
+        stats = self.conversation_memory.get_memory_stats()
+        
+        # Get recent conversation turns for display
+        recent_turns = []
+        if self.conversation_memory.conversation_history:
+            for turn in list(self.conversation_memory.conversation_history):
+                recent_turns.append({
+                    "user_message": turn.user_message,
+                    "assistant_response": turn.assistant_response,
+                    "timestamp": turn.timestamp.isoformat(),
+                    "sources": turn.sources
+                })
+        
+        return {
+            "conversation_stats": stats,
+            "recent_turns": recent_turns,
+            "has_summaries": len(self.conversation_memory.conversation_summaries) > 0
+        }
+    
+    def export_conversation_memory(self) -> Dict[str, Any]:
+        """
+        Export conversation memory for persistence
+        
+        Returns:
+            Dictionary representation of conversation memory
+        """
+        if not self.enable_conversation_memory or not self.conversation_memory:
+            return {"error": "Conversation memory is not enabled"}
+        
+        return self.conversation_memory.save_to_dict()
+    
+    def import_conversation_memory(self, memory_data: Dict[str, Any]) -> bool:
+        """
+        Import conversation memory from saved data
+        
+        Args:
+            memory_data: Dictionary with conversation memory data
+            
+        Returns:
+            True if import was successful, False otherwise
+        """
+        if not self.enable_conversation_memory:
+            logger.warning("Conversation memory is not enabled")
+            return False
+        
+        try:
+            self.conversation_memory = ConversationMemory.load_from_dict(memory_data)
+            logger.info("Conversation memory imported successfully")
+            return True
+        except Exception as e:
+            logger.error(f"Error importing conversation memory: {e}")
+            return False
+    
+    def chat(self, message: str, top_k: int = None) -> Dict[str, Any]:
+        """
+        Chat interface that automatically manages conversation memory
+        
+        Args:
+            message: User message
+            top_k: Number of documents to retrieve
+            
+        Returns:
+            Dictionary with response and conversation context
+        """
+        # If this is the first message and no conversation is started, start one
+        if (self.enable_conversation_memory and 
+            self.conversation_memory and 
+            not self.conversation_memory.conversation_id):
+            self.start_conversation()
+        
+        # Process the question with conversation memory
+        result = self.answer_question(message, top_k=top_k, save_to_memory=True)
+        
+        # Add conversation context to result
+        if self.enable_conversation_memory and self.conversation_memory:
+            result["conversation_id"] = self.conversation_memory.conversation_id
+            result["conversation_turn"] = len(self.conversation_memory.conversation_history)
+        
+        return result
 
 
 def main():
     """Main function for testing"""
-    # Use create_with_defaults for testing purposes
-    rag = QdrantRAG.create_with_defaults()
+    # Use production config if available, otherwise fall back to defaults
+    try:
+        rag = QdrantRAG.from_production_config()
+        print("Using production configuration")
+        
+        # Show production info if available
+        opt_info = Config.get_optimization_info()
+        if opt_info:
+            print(f"Optimization date: {opt_info.get('tuning_date', 'N/A')}")
+            print(f"Ready for production: {opt_info.get('ready_for_production', 'N/A')}")
+        
+        doc_metadata = Config.get_document_metadata()
+        if doc_metadata:
+            print(f"Document description: {doc_metadata.get('file_description', 'N/A')[:100]}...")
+            
+    except Exception as e:
+        logger.warning(f"Failed to create from production config: {e}")
+        print("Falling back to default configuration")
+        rag = QdrantRAG.create_with_defaults()
     
     # Test questions
     test_questions = [

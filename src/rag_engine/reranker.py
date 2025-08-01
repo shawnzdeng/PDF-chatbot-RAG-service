@@ -16,7 +16,7 @@ from .qdrant_rag import RetrievalResult
 logger = logging.getLogger(__name__)
 
 class RerankingConfig:
-    """Configuration for reranking loaded from parameters_config.json"""
+    """Configuration for reranking loaded from production config"""
     
     def __init__(self, 
                  model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
@@ -44,9 +44,46 @@ class RerankingConfig:
         self.embedding_weight = embedding_weight
     
     @classmethod
+    def from_production_config(cls) -> 'RerankingConfig':
+        """
+        Load reranking configuration from production config
+        
+        Returns:
+            RerankingConfig instance with values from production config
+        """
+        try:
+            # Import here to avoid circular imports
+            import sys
+            import os
+            
+            # Add the parent directory to sys.path to import config
+            parent_dir = Path(__file__).parent.parent.parent
+            if str(parent_dir) not in sys.path:
+                sys.path.insert(0, str(parent_dir))
+            
+            from config import Config
+            
+            if Config.reranker_config:
+                return cls(
+                    model_name=Config.reranker_config.model,
+                    top_k_before_rerank=Config.reranker_config.top_k_before_rerank,
+                    top_k_after_rerank=Config.rag_config.top_k_retrieval if Config.rag_config else 5,
+                    enable_hybrid_scoring=Config.reranker_config.hybrid_scoring,
+                    cross_encoder_weight=Config.reranker_config.cross_encoder_weight,
+                    embedding_weight=Config.reranker_config.embedding_weight
+                )
+            else:
+                logger.warning("No reranker config found in production config. Using defaults.")
+                return cls()
+            
+        except Exception as e:
+            logger.warning(f"Could not load reranking config from production config: {e}. Using defaults.")
+            return cls()
+    
+    @classmethod
     def from_parameters_config(cls, config_path: str = None) -> 'RerankingConfig':
         """
-        Load reranking configuration from parameters_config.json
+        Load reranking configuration from parameters_config.json (legacy method)
         
         Args:
             config_path: Path to parameters_config.json file
@@ -54,6 +91,13 @@ class RerankingConfig:
         Returns:
             RerankingConfig instance with default values from config
         """
+        # First try to load from production config
+        try:
+            return cls.from_production_config()
+        except Exception:
+            pass
+        
+        # Fallback to old method
         if config_path is None:
             # Default path relative to this file
             config_path = Path(__file__).parent.parent / "parameters_config.json"

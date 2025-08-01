@@ -102,8 +102,8 @@ class ConversationMemory:
                  retrieved_context: str,
                  sources: List[str] = None,
                  metadata: Dict[str, Any] = None,
-                 store_sources_in_memory: bool = False,
-                 store_context_in_memory: bool = False) -> None:
+                 store_sources_in_memory: bool = True,
+                 store_context_in_memory: bool = True) -> None:
         """
         Add a conversation turn to memory
         
@@ -116,9 +116,21 @@ class ConversationMemory:
             store_sources_in_memory: Whether to store source references in conversation memory
             store_context_in_memory: Whether to store retrieved context in conversation memory
         """
-        # Create lean version for memory storage
+        # Store more context for better conversation continuity
         stored_sources = sources if store_sources_in_memory else []
         stored_context = retrieved_context if store_context_in_memory else ""
+        
+        # Extract key topics and concepts from the assistant response for better reference resolution
+        extracted_topics = self._extract_key_concepts(assistant_response)
+        
+        # Enhanced metadata with topics and context info
+        enhanced_metadata = metadata or {}
+        enhanced_metadata.update({
+            'extracted_topics': extracted_topics,
+            'context_length': len(retrieved_context) if retrieved_context else 0,
+            'sources_count': len(sources) if sources else 0,
+            'turn_number': len(self.conversation_history) + 1
+        })
         
         turn = ConversationTurn(
             user_message=user_message,
@@ -126,7 +138,7 @@ class ConversationMemory:
             retrieved_context=stored_context,
             timestamp=datetime.now(),
             sources=stored_sources,
-            metadata=metadata or {}
+            metadata=enhanced_metadata
         )
         
         self.conversation_history.append(turn)
@@ -136,20 +148,63 @@ class ConversationMemory:
             len(self.conversation_history) >= self.summarization_threshold):
             self._maybe_summarize_history()
         
-        logger.debug(f"Added conversation turn. History length: {len(self.conversation_history)}")
+        logger.debug(f"Added conversation turn {enhanced_metadata.get('turn_number')}. History length: {len(self.conversation_history)}")
         
-        # Log the decision about source/context storage
-        if not store_sources_in_memory and sources:
-            logger.debug(f"Excluded {len(sources)} sources from conversation memory")
-        if not store_context_in_memory and retrieved_context:
-            logger.debug(f"Excluded {len(retrieved_context)} chars of context from conversation memory")
+        # Log the context storage decision
+        if store_sources_in_memory and sources:
+            logger.debug(f"Stored {len(sources)} sources in conversation memory")
+        if store_context_in_memory and retrieved_context:
+            logger.debug(f"Stored {len(retrieved_context)} chars of context in conversation memory")
+        if extracted_topics:
+            logger.debug(f"Extracted topics: {', '.join(extracted_topics[:3])}{'...' if len(extracted_topics) > 3 else ''}")
+    
+    def _extract_key_concepts(self, response_text: str) -> List[str]:
+        """
+        Extract key concepts and topics from assistant response for better reference resolution
+        
+        Args:
+            response_text: Assistant's response text
+            
+        Returns:
+            List of key concepts/topics mentioned
+        """
+        import re
+        
+        # Simple keyword extraction - could be enhanced with NLP libraries
+        concepts = []
+        
+        # Look for numbered lists or bullet points
+        numbered_items = re.findall(r'\d+\.\s*([^.!?]*[.!?])', response_text)
+        for item in numbered_items:
+            # Extract the main concept (first few words)
+            words = item.strip().split()[:4]
+            if words:
+                concept = ' '.join(words).strip('.,!?:')
+                if len(concept) > 3:  # Avoid very short concepts
+                    concepts.append(concept)
+        
+        # Look for common ML/technical terms and concepts
+        technical_terms = re.findall(r'\b(?:supervised|unsupervised|reinforcement|learning|algorithm|model|neural|network|decision|tree|clustering|classification|regression|deep|machine)\s+\w+(?:\s+\w+)?', response_text.lower())
+        concepts.extend([term.title() for term in technical_terms[:5]])  # Limit to avoid noise
+        
+        # Look for terms followed by colons (often definitions)
+        definition_terms = re.findall(r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*:', response_text)
+        concepts.extend(definition_terms[:3])
+        
+        # Remove duplicates and return
+        unique_concepts = []
+        for concept in concepts:
+            if concept not in unique_concepts and len(concept) > 2:
+                unique_concepts.append(concept)
+        
+        return unique_concepts[:10]  # Limit to top 10 concepts
     
     def get_conversation_context(self, 
                                current_question: str,
                                include_summaries: bool = True,
                                max_recent_turns: int = None) -> str:
         """
-        Get conversation context for the current question
+        Get conversation context for the current question with enhanced reference resolution
         
         Args:
             current_question: Current user question
@@ -167,14 +222,62 @@ class ConversationMemory:
             if summary_text:
                 context_parts.append(f"Previous conversation summary:\n{summary_text}")
         
-        # Add recent conversation history
+        # Enhance recent conversation history with topic mapping
         recent_turns = max_recent_turns or min(len(self.conversation_history), 5)
         if recent_turns > 0 and self.conversation_history:
-            recent_history = self._format_recent_history(recent_turns)
+            recent_history = self._format_recent_history_enhanced(recent_turns, current_question)
             if recent_history:
                 context_parts.append(f"Recent conversation:\n{recent_history}")
         
         return "\n\n".join(context_parts) if context_parts else ""
+    
+    def _format_recent_history_enhanced(self, max_turns: int, current_question: str = "") -> str:
+        """
+        Format recent conversation history with enhanced context for reference resolution
+        
+        Args:
+            max_turns: Maximum number of turns to include
+            current_question: Current user question to help with reference resolution
+            
+        Returns:
+            Enhanced formatted conversation history
+        """
+        if not self.conversation_history:
+            return ""
+        
+        recent_turns = list(self.conversation_history)[-max_turns:]
+        formatted_turns = []
+        
+        # Check if current question contains reference terms
+        has_reference = any(ref in current_question.lower() for ref in [
+            'the first', 'the second', 'the last', 'the previous', 'that one', 'this one',
+            'it', 'them', 'those', 'these', 'above', 'mentioned'
+        ])
+        
+        for i, turn in enumerate(recent_turns, 1):
+            # Basic turn formatting
+            formatted_turn = f"Turn {i}:\nUser: {turn.user_message}\nAssistant: {turn.assistant_response}"
+            
+            # Add extracted topics if available and current question has references
+            if has_reference and turn.metadata.get('extracted_topics'):
+                topics = turn.metadata['extracted_topics']
+                if topics:
+                    formatted_turn += f"\n[Key topics discussed: {', '.join(topics[:5])}]"
+            
+            # Add source information if available and relevant
+            if turn.sources and len(turn.sources) > 0:
+                formatted_turn += f"\n[Sources referenced: {len(turn.sources)} documents]"
+            
+            formatted_turns.append(formatted_turn)
+        
+        # Add reference resolution hint if current question contains references
+        if has_reference and recent_turns:
+            last_turn = recent_turns[-1]
+            if last_turn.metadata.get('extracted_topics'):
+                reference_hint = f"\n[Reference Resolution: If the user refers to 'the first one', 'the second one', etc., they likely mean: {', '.join(last_turn.metadata['extracted_topics'][:3])}]"
+                return "\n\n".join(formatted_turns) + reference_hint
+        
+        return "\n\n".join(formatted_turns)
     
     def get_enhanced_prompt_template(self, base_template: str) -> str:
         """

@@ -167,10 +167,22 @@ def display_sidebar():
                 if conv_stats and 'conversation_stats' in conv_stats:
                     stats = conv_stats['conversation_stats']
                     st.markdown("**Conversation Stats:**")
-                    st.text(f"Turns: {stats.get('total_turns', 0)}")
-                    st.text(f"Summaries: {stats.get('total_summaries', 0)}")
+                    st.text(f"Turns: {stats.get('active_turns', 0)}")
+                    st.text(f"Summaries: {stats.get('summarized_segments', 0)}")
                     if stats.get('conversation_id'):
                         st.text(f"ID: {stats['conversation_id'][:8]}...")
+                    
+                    # Show enhanced memory info
+                    with st.expander("🧠 Memory Details", expanded=False):
+                        if conv_stats.get('recent_turns'):
+                            st.markdown("**Recent Topics:**")
+                            for i, turn in enumerate(conv_stats['recent_turns'][-3:], 1):
+                                if turn.get('sources'):
+                                    st.text(f"Turn {i}: {len(turn['sources'])} sources")
+                                if 'extracted_topics' in turn.get('metadata', {}):
+                                    topics = turn['metadata']['extracted_topics'][:3]
+                                    if topics:
+                                        st.text(f"  Topics: {', '.join(topics)}")
             except Exception as e:
                 logger.error(f"Error getting conversation stats: {e}")
         
@@ -323,11 +335,45 @@ def main():
         # Tips
         with st.expander("💡 Tips for Better Results", expanded=False):
             st.markdown("""
-            - Be specific in your questions
-            - Reference previous parts of the conversation
-            - Ask follow-up questions for clarity
-            - Check source documents for more details
-            - Use the example questions as starting points
+            - **Be specific** in your questions
+            - **Reference previous discussions** - say "the first one", "that topic", etc.
+            - **Ask follow-up questions** for deeper understanding
+            - **Use conversation context** - the system remembers what you've discussed
+            - **Check source documents** for more details
+            - **Use example questions** as starting points
+            - **Ask for comparisons** between previously mentioned topics
+            """)
+        
+        # Enhanced conversation features info
+        with st.expander("🔧 Enhanced Features", expanded=False):
+            st.markdown("""
+            **Improved Conversation Memory:**
+            - ✅ Tracks key topics from each response
+            - ✅ Resolves references like "the first one", "that topic"
+            - ✅ Stores context and sources for better continuity
+            - ✅ Enhanced prompt templates for better understanding
+            - ✅ Query expansion using conversation history
+            
+            **Better Reference Resolution:**
+            - The system now understands when you refer to previously mentioned topics
+            - It can connect "give me more details about the first one" to specific concepts
+            - Conversation context is preserved across multiple turns
+            """)
+        
+        # Conversation examples
+        with st.expander("💬 Conversation Examples", expanded=False):
+            st.markdown("""
+            **Example conversation flow:**
+            
+            1. **You:** "What are the different types of machine learning?"
+            2. **Assistant:** Explains supervised, unsupervised, reinforcement learning
+            3. **You:** "Tell me more about the first one"
+            4. **Assistant:** Now understands you want details about supervised learning!
+            
+            **Other reference phrases that work:**
+            - "Can you elaborate on the second type?"
+            - "What about that algorithm you mentioned?"
+            - "How does it compare to the previous method?"
             """)
 
 if __name__ == "__main__":

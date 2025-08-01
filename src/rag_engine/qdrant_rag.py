@@ -232,8 +232,14 @@ class QdrantRAG:
         score_threshold = Config.reranker_config.score_threshold if Config.reranker_config else 0.3
         enable_reranking = Config.reranker_config.enabled if Config.reranker_config else True
         
-        # Use default prompt template
-        prompt_template = cls._get_default_prompt_template_static()
+        # Generate domain-specific prompt template based on document metadata
+        document_metadata = Config.get_document_metadata()
+        if document_metadata:
+            prompt_template = cls._generate_domain_specific_prompt_template(document_metadata)
+            logger.info("Using domain-specific prompt template generated from production config metadata")
+        else:
+            prompt_template = cls._get_default_prompt_template_static()
+            logger.info("Using default prompt template - no document metadata found in production config")
         
         logger.info("Creating QdrantRAG from production configuration")
         
@@ -298,20 +304,92 @@ class QdrantRAG:
     @staticmethod
     def _get_default_prompt_template_static() -> str:
         """Get the default prompt template string (static version)"""
-        return """You are a helpful assistant that answers questions based on the provided context from PDF documents.
+        return """You are an expert AI tutor specializing in Machine Learning, helping students understand concepts from their course materials.
 
-Context from documents:
+Context from Machine Learning course documents:
 {context}
 
-Question: {question}
+Student Question: {question}
 
 Instructions:
-1. Answer the question based ONLY on the information provided in the context
-2. If the answer is not found in the context, clearly state "I don't have enough information in the provided documents to answer this question"
-3. Be concise and accurate
-4. If relevant, mention which part of the document the information comes from
+1. You are teaching Machine Learning concepts from B.Tech final-year course materials
+2. Provide comprehensive, educational explanations using the provided context
+3. Break down complex concepts into understandable parts
+4. Use examples and analogies when helpful to explain machine learning concepts
+5. If the context contains relevant information, build upon it with clear explanations
+6. For topics like supervised/unsupervised learning, neural networks, decision trees, etc., be thorough and educational
+7. Connect related concepts when appropriate (e.g., how different algorithms relate to each other)
+8. If the context has partial information, explain what you can and suggest what additional concepts might be relevant
+9. Only state you don't have enough information if the question is completely unrelated to machine learning or the provided context
+10. Reference specific parts of the course material when applicable
+
+Remember: Your goal is to help students learn and understand machine learning concepts effectively.
 
 Answer:"""
+
+    @classmethod
+    def _generate_domain_specific_prompt_template(cls, document_metadata: Dict[str, Any]) -> str:
+        """
+        Generate a domain-specific prompt template based on production config metadata
+        
+        Args:
+            document_metadata: Metadata from production config describing the documents
+            
+        Returns:
+            Customized prompt template string
+        """
+        file_desc = document_metadata.get("file_description", "")
+        example_questions = document_metadata.get("example_questions", [])
+        
+        # Extract domain and context from file description
+        if "machine learning" in file_desc.lower():
+            domain = "Machine Learning"
+            context_desc = "Machine Learning course documents"
+            role = "an expert AI tutor specializing in Machine Learning"
+            educational_note = "You are teaching Machine Learning concepts from B.Tech final-year course materials"
+        elif "data science" in file_desc.lower():
+            domain = "Data Science"
+            context_desc = "Data Science course documents"  
+            role = "an expert AI tutor specializing in Data Science"
+            educational_note = "You are teaching Data Science concepts and methodologies"
+        else:
+            # Generic educational template
+            domain = "Educational Content"
+            context_desc = "course documents"
+            role = "an expert AI tutor"
+            educational_note = "You are helping students understand course material"
+        
+        # Build example topics from questions
+        topic_examples = ""
+        if example_questions:
+            topics = [q.split("?")[0].replace("What is ", "").replace("Can you explain ", "").replace("How does ", "") 
+                     for q in example_questions[:3]]
+            topic_examples = f"For topics like {', '.join(topics)}, etc., be thorough and educational"
+        
+        template = f"""You are {role}, helping students understand concepts from their course materials.
+
+Context from {context_desc}:
+{{context}}
+
+Student Question: {{question}}
+
+Instructions:
+1. {educational_note}
+2. Provide comprehensive, educational explanations using the provided context
+3. Break down complex concepts into understandable parts
+4. Use examples and analogies when helpful to explain {domain.lower()} concepts
+5. If the context contains relevant information, build upon it with clear explanations
+6. {topic_examples if topic_examples else "Be thorough and educational in your explanations"}
+7. Connect related concepts when appropriate
+8. If the context has partial information, explain what you can and suggest what additional concepts might be relevant
+9. Only state you don't have enough information if the question is completely unrelated to {domain.lower()} or the provided context
+10. Reference specific parts of the course material when applicable
+
+Remember: Your goal is to help students learn and understand {domain.lower()} concepts effectively.
+
+Answer:"""
+        
+        return template
 
     def _create_prompt_template(self) -> ChatPromptTemplate:
         """Create the prompt template for RAG"""
@@ -335,75 +413,124 @@ Answer:"""
             logger.error(f"Error generating query embedding: {e}")
             raise
     
-    def retrieve_documents(self, query: str, top_k: int = None) -> List[RetrievalResult]:
+    def _enhance_query_with_context(self, query: str) -> str:
         """
-        Retrieve relevant documents from Qdrant with optional reranking
+        Enhance user query with conversation context for better retrieval
         
         Args:
-            query: User question
+            query: Original user query
+            
+        Returns:
+            Enhanced query with context
+        """
+        if not (self.enable_conversation_memory and 
+                self.conversation_memory and 
+                self.conversation_memory.has_conversation_history()):
+            return query
+        
+        # Check if query contains reference terms
+        reference_terms = ['the first', 'the second', 'the last', 'the previous', 'that one', 'this one',
+                          'it', 'them', 'those', 'these', 'above', 'mentioned', 'earlier']
+        
+        has_reference = any(ref in query.lower() for ref in reference_terms)
+        
+        if has_reference and self.conversation_memory.conversation_history:
+            # Get the last turn's topics to enhance the query
+            last_turn = list(self.conversation_memory.conversation_history)[-1]
+            if last_turn.metadata.get('extracted_topics'):
+                topics = last_turn.metadata['extracted_topics'][:3]  # Top 3 topics
+                enhanced_query = f"{query} (Context: discussing {', '.join(topics)})"
+                logger.debug(f"Enhanced query with context: {enhanced_query}")
+                return enhanced_query
+        
+        return query
+
+    def retrieve_documents(self, query: str, top_k: int = None) -> List[RetrievalResult]:
+        """
+        Retrieve relevant documents from Qdrant with conversation context enhancement
+        
+        Args:
+            query: Search query
             top_k: Number of documents to retrieve
             
         Returns:
-            List of relevant documents with scores (reranked if enabled)
+            List of RetrievalResult objects
         """
-        top_k = top_k or self.top_k
-        
-        # If reranking is enabled, retrieve more documents for reranking
-        search_limit = top_k
-        if self.enable_reranking and self.reranker is not None:
-            # Use the configured top_k_before_rerank value instead of hardcoded calculation
-            search_limit = self.reranker.config.top_k_before_rerank
-            logger.debug(f"Using configured top_k_before_rerank: {search_limit} (final top_k: {top_k})")
-        
         try:
-            # Generate query embedding
-            query_embedding = self.embed_query(query)
+            # Enhance query with conversation context
+            enhanced_query = self._enhance_query_with_context(query)
             
-            # Search in Qdrant with configurable score threshold
-            search_result = self.qdrant_client.search(
+            # Use enhanced query for embedding
+            query_vector = self.embeddings.embed_query(enhanced_query)
+            
+            # Determine number of documents to retrieve (consider reranking)
+            retrieve_count = top_k or self.top_k
+            if self.enable_reranking and self.reranker:
+                retrieve_count = max(self.reranker.config.top_k_before_rerank, retrieve_count)
+            
+            # Search in Qdrant
+            search_results = self.qdrant_client.search(
                 collection_name=self.collection_name,
-                query_vector=query_embedding,
-                limit=search_limit,
+                query_vector=query_vector,
+                limit=retrieve_count,
                 score_threshold=self.score_threshold
             )
             
-            # If no results with threshold, try without threshold as fallback
-            if not search_result and self.score_threshold > 0:
-                logger.warning(f"No documents found with score_threshold={self.score_threshold}, trying without threshold")
-                search_result = self.qdrant_client.search(
-                    collection_name=self.collection_name,
-                    query_vector=query_embedding,
-                    limit=search_limit
-                )
+            if not search_results:
+                logger.warning(f"No documents found for query: {query}")
+                return []
             
             # Convert to RetrievalResult objects
-            results = []
-            for result in search_result:
-                retrieval_result = RetrievalResult(
-                    content=result.payload.get("content", ""),
+            retrieved_docs = []
+            for result in search_results:
+                # Try multiple possible content field names
+                content = ""
+                content_fields = ["content", "text", "page_content", "chunk", "document", "body"]
+                
+                for field_name in content_fields:
+                    if field_name in result.payload:
+                        field_content = result.payload[field_name]
+                        if isinstance(field_content, str) and field_content.strip():
+                            content = field_content
+                            logger.debug(f"Found content in field '{field_name}': {len(content)} chars")
+                            break
+                else:
+                    # If none of the standard fields found, log the available fields
+                    logger.warning(f"No content field found in payload. Available fields: {list(result.payload.keys())}")
+                
+                retrieved_docs.append(RetrievalResult(
+                    content=content,
                     score=result.score,
-                    metadata={
-                        "source": result.payload.get("source", ""),
-                        "page": result.payload.get("page", 0),
-                        "chunk_index": result.payload.get("chunk_index", 0)
-                    }
-                )
-                results.append(retrieval_result)
+                    metadata=result.payload
+                ))
             
             # Apply reranking if enabled
-            if self.enable_reranking and self.reranker is not None and results:
-                logger.debug(f"Applying reranking to {len(results)} documents")
-                results = self.reranker.rerank_documents(query, results, top_k)
-                logger.info(f"Reranked documents, returning top {len(results)}")
+            if self.enable_reranking and self.reranker and len(retrieved_docs) > 1:
+                logger.debug(f"Applying reranking to {len(retrieved_docs)} documents")
+                retrieved_docs = self.reranker.rerank_documents(enhanced_query, retrieved_docs)
+                logger.debug(f"After reranking: {len(retrieved_docs)} documents")
             
-            logger.info(f"Retrieved {len(results)} documents for query (threshold={self.score_threshold}, reranking={self.enable_reranking})")
-            if results and len(results) > 0:
-                logger.debug(f"Score range: {min(r.score for r in results):.3f} - {max(r.score for r in results):.3f}")
-            
-            return results
+            logger.info(f"Retrieved {len(retrieved_docs)} documents for query: {query[:50]}...")
+            return retrieved_docs
             
         except Exception as e:
             logger.error(f"Error retrieving documents: {e}")
+            return []
+
+    def embed_query(self, query: str) -> List[float]:
+        """
+        Generate embedding for a query string
+        
+        Args:
+            query: Input query string
+            
+        Returns:
+            Query embedding vector
+        """
+        try:
+            return self.embeddings.embed_query(query)
+        except Exception as e:
+            logger.error(f"Error generating query embedding: {e}")
             return []
     
     def format_context(self, results: List[RetrievalResult]) -> str:
@@ -481,29 +608,39 @@ Answer:"""
                 conversation_context = self.conversation_memory.get_conversation_context(
                     current_question=query,
                     include_summaries=True,
-                    max_recent_turns=3
+                    max_recent_turns=5  # Increased from 3 to 5 for better context
                 )
                 has_conversation_context = bool(conversation_context.strip())
             
             # Choose the appropriate prompt template and chain based on conversation context
             if has_conversation_context:
-                # Use conversation-aware template
-                enhanced_template = """You are a helpful AI assistant that answers questions based on provided documents and conversation history.
+                # Use enhanced conversation-aware template with better reference resolution
+                enhanced_template = """You are an expert AI tutor specializing in Machine Learning, helping students understand concepts through ongoing conversation.
 
+PREVIOUS CONVERSATION:
 {conversation_context}
 
-Context from documents:
+CURRENT COURSE MATERIAL:
 {context}
 
-Question: {question}
+STUDENT QUESTION: {question}
 
-Instructions:
-1. Answer the question based ONLY on the information provided in the context and any relevant conversation history
-2. If the answer is not found in the context, clearly state "I don't have enough information in the provided documents to answer this question"
-3. Be concise and accurate
-4. If relevant, mention which part of the document the information comes from
-5. Consider the conversation history to provide contextual and coherent responses
-6. If the question refers to something mentioned earlier in the conversation, acknowledge that context
+INSTRUCTIONS:
+1. Review the conversation history to understand what machine learning concepts have been discussed
+2. If the student refers to "the first algorithm", "that method", "it", etc., use the conversation history to identify the specific ML concept
+3. Build upon previous explanations and connect new concepts to what has already been covered
+4. Use BOTH the conversation history AND current course material to provide comprehensive learning support
+5. If the question builds on previous topics, explicitly acknowledge the connection and expand the student's understanding
+6. Provide educational explanations that help students grasp machine learning concepts progressively
+7. When students ask for "more details" about previously mentioned topics, provide deeper insights and examples
+8. Connect related ML concepts when appropriate (e.g., how different algorithms or techniques relate)
+9. Only state you don't have enough information if the question is completely outside the scope of machine learning
+
+EDUCATIONAL APPROACH:
+- Build knowledge progressively based on what's been discussed
+- Use clear explanations and examples
+- Help students see connections between different ML concepts
+- Encourage deeper understanding of the subject matter
 
 Answer:"""
                 
@@ -595,8 +732,8 @@ Answer:"""
                             "top_k": top_k or self.top_k
                         }
                     },
-                    store_sources_in_memory=False,  # Don't store sources in memory to keep it lean
-                    store_context_in_memory=False   # Don't store retrieved context in memory to keep it lean
+                    store_sources_in_memory=True,   # Changed to True for better context
+                    store_context_in_memory=True    # Changed to True for better context
                 )
             
             # Calculate average relevance score

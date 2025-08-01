@@ -1,0 +1,8 @@
+{
+    "python.pythonPath": "D:\\miniconda3\\envs\\rag_service\\python.exe",
+    "python.defaultInterpreterPath": "D:\\miniconda3\\envs\\rag_service\\python.exe",
+    "python.condaPath": "D:\\miniconda3\\Scripts\\conda.exe",
+    "python.venvPath": "D:\\miniconda3\\envs",
+    "python.terminal.activateEnvironment": true,
+    "python.terminal.activateEnvInCurrentTerminal": true
+}

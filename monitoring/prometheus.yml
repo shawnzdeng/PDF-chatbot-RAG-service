@@ -1,0 +1,33 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  # - "first_rules.yml"
+  # - "second_rules.yml"
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Node exporter for system metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+
+  # RAG Chatbot application metrics
+  - job_name: 'rag-chatbot'
+    static_configs:
+      - targets: ['rag-chatbot:8501']
+    metrics_path: '/metrics'
+    scrape_interval: 30s
+
+  # Note: Qdrant is on cloud, metrics would need to be exposed via API if needed
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          # - alertmanager:9093

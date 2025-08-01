@@ -47,7 +47,11 @@ def demo_conversation_memory():
             # Get response using chat interface (automatically manages memory)
             try:
                 result = rag.chat(question, top_k=3)
-                print(f"Assistant: {result['answer'][:200]}...")
+                print(f"Assistant: {result['answer'][:300]}...")
+                
+                # Show source information
+                if 'source_references' in result and result['source_references']:
+                    print(f"Sources used: {', '.join(result['source_references'])}")
                 
                 # Show conversation stats
                 if 'conversation_stats' in result:

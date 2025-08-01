@@ -101,7 +101,9 @@ class ConversationMemory:
                  assistant_response: str,
                  retrieved_context: str,
                  sources: List[str] = None,
-                 metadata: Dict[str, Any] = None) -> None:
+                 metadata: Dict[str, Any] = None,
+                 store_sources_in_memory: bool = False,
+                 store_context_in_memory: bool = False) -> None:
         """
         Add a conversation turn to memory
         
@@ -111,13 +113,19 @@ class ConversationMemory:
             retrieved_context: Retrieved RAG context
             sources: List of source documents
             metadata: Additional metadata
+            store_sources_in_memory: Whether to store source references in conversation memory
+            store_context_in_memory: Whether to store retrieved context in conversation memory
         """
+        # Create lean version for memory storage
+        stored_sources = sources if store_sources_in_memory else []
+        stored_context = retrieved_context if store_context_in_memory else ""
+        
         turn = ConversationTurn(
             user_message=user_message,
             assistant_response=assistant_response,
-            retrieved_context=retrieved_context,
+            retrieved_context=stored_context,
             timestamp=datetime.now(),
-            sources=sources or [],
+            sources=stored_sources,
             metadata=metadata or {}
         )
         
@@ -129,6 +137,12 @@ class ConversationMemory:
             self._maybe_summarize_history()
         
         logger.debug(f"Added conversation turn. History length: {len(self.conversation_history)}")
+        
+        # Log the decision about source/context storage
+        if not store_sources_in_memory and sources:
+            logger.debug(f"Excluded {len(sources)} sources from conversation memory")
+        if not store_context_in_memory and retrieved_context:
+            logger.debug(f"Excluded {len(retrieved_context)} chars of context from conversation memory")
     
     def get_conversation_context(self, 
                                current_question: str,

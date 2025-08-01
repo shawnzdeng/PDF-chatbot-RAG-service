@@ -431,6 +431,31 @@ Answer:"""
         
         return "\n".join(context_parts)
     
+    def format_answer_with_sources(self, answer: str, retrieved_docs: List[RetrievalResult]) -> str:
+        """
+        Format answer to include source references
+        
+        Args:
+            answer: Generated answer text
+            retrieved_docs: List of retrieved documents
+            
+        Returns:
+            Answer with appended source references
+        """
+        if not retrieved_docs:
+            return answer
+        
+        # Append source references to the answer
+        source_section = "\n\n**Sources:**\n"
+        for i, doc in enumerate(retrieved_docs, 1):
+            source_ref = f"{i}. {doc.metadata.get('source', f'Document {i}')}"
+            if doc.metadata.get("page"):
+                source_ref += f" (Page {doc.metadata['page']})"
+            source_ref += f" - Relevance: {doc.score:.3f}"
+            source_section += source_ref + "\n"
+        
+        return answer + source_section
+    
     def generate_answer(self, query: str, context: str, use_conversation_memory: bool = True) -> str:
         """
         Generate answer using LLM with optional conversation memory
@@ -521,7 +546,7 @@ Answer:"""
             logger.error(f"Error generating answer: {e}")
             return f"Error generating answer: {str(e)}"
     
-    def answer_question(self, question: str, top_k: int = None, save_to_memory: bool = True) -> Dict[str, Any]:
+    def answer_question(self, question: str, top_k: int = None, save_to_memory: bool = True, include_sources_in_answer: bool = True) -> Dict[str, Any]:
         """
         Complete RAG pipeline: retrieve and generate answer with conversation memory
         
@@ -529,6 +554,7 @@ Answer:"""
             question: User question
             top_k: Number of documents to retrieve
             save_to_memory: Whether to save this interaction to conversation memory
+            include_sources_in_answer: Whether to append source references to the answer text
             
         Returns:
             Dictionary with answer, context, and metadata
@@ -542,6 +568,11 @@ Answer:"""
             
             # Generate answer with conversation awareness
             answer = self.generate_answer(question, context, use_conversation_memory=True)
+            
+            # Format answer with source references if requested
+            formatted_answer = answer
+            if include_sources_in_answer and retrieved_docs:
+                formatted_answer = self.format_answer_with_sources(answer, retrieved_docs)
             
             # Save to conversation memory if enabled
             if (save_to_memory and 
@@ -563,19 +594,43 @@ Answer:"""
                             "temperature": self.temperature,
                             "top_k": top_k or self.top_k
                         }
-                    }
+                    },
+                    store_sources_in_memory=False,  # Don't store sources in memory to keep it lean
+                    store_context_in_memory=False   # Don't store retrieved context in memory to keep it lean
                 )
             
             # Calculate average relevance score
             avg_score = sum(doc.score for doc in retrieved_docs) / len(retrieved_docs) if retrieved_docs else 0
             
+            # Prepare detailed source information
+            detailed_sources = []
+            source_references = []
+            for i, doc in enumerate(retrieved_docs, 1):
+                source_info = {
+                    "rank": i,
+                    "source": doc.metadata.get("source", f"Document {i}"),
+                    "page": doc.metadata.get("page"),
+                    "relevance_score": doc.score,
+                    "excerpt": doc.content[:150] + "..." if len(doc.content) > 150 else doc.content
+                }
+                detailed_sources.append(source_info)
+                
+                # Create a concise reference for display
+                ref = f"[{i}] {doc.metadata.get('source', f'Doc {i}')}"
+                if doc.metadata.get("page"):
+                    ref += f" (p. {doc.metadata['page']})"
+                source_references.append(ref)
+            
             result = {
                 "question": question,
-                "answer": answer,
+                "answer": formatted_answer,  # Use formatted answer with sources
+                "raw_answer": answer,  # Include raw answer without sources
                 "context": context,
                 "retrieved_documents": len(retrieved_docs),
                 "average_relevance_score": avg_score,
-                "sources": [doc.metadata.get("source", "") for doc in retrieved_docs],
+                "sources": [doc.metadata.get("source", "") for doc in retrieved_docs],  # Simple list for backward compatibility
+                "detailed_sources": detailed_sources,  # Detailed source information with excerpts
+                "source_references": source_references,  # Formatted references for easy display
                 "model_params": {
                     "llm_model": self.llm_model,
                     "embedding_model": self.embedding_model,
@@ -800,13 +855,14 @@ Answer:"""
             logger.error(f"Error importing conversation memory: {e}")
             return False
     
-    def chat(self, message: str, top_k: int = None) -> Dict[str, Any]:
+    def chat(self, message: str, top_k: int = None, include_sources_in_answer: bool = True) -> Dict[str, Any]:
         """
         Chat interface that automatically manages conversation memory
         
         Args:
             message: User message
             top_k: Number of documents to retrieve
+            include_sources_in_answer: Whether to include source references in the answer
             
         Returns:
             Dictionary with response and conversation context
@@ -817,8 +873,13 @@ Answer:"""
             not self.conversation_memory.conversation_id):
             self.start_conversation()
         
-        # Process the question with conversation memory
-        result = self.answer_question(message, top_k=top_k, save_to_memory=True)
+        # Process the question with conversation memory and source inclusion
+        result = self.answer_question(
+            message, 
+            top_k=top_k, 
+            save_to_memory=True, 
+            include_sources_in_answer=include_sources_in_answer
+        )
         
         # Add conversation context to result
         if self.enable_conversation_memory and self.conversation_memory:

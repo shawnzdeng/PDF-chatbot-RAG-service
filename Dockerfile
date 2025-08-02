@@ -34,7 +34,8 @@ RUN pip install --no-cache-dir \
     pytest==8.4.1 \
     pandas==2.0.3 \
     numpy==1.24.4 \
-    psutil==6.1.1
+    psutil \
+    httpx==0.27.2
 
 # Install sentence-transformers and transformers (smaller packages first)
 RUN pip install --no-cache-dir \
@@ -48,6 +49,19 @@ RUN pip install --no-cache-dir \
 # Install sentence-transformers after torch
 RUN pip install --no-cache-dir \
     sentence-transformers==5.0.0
+
+# Install additional minimal dependencies for proper functioning
+RUN pip install --no-cache-dir \
+    pydantic==2.11.7 \
+    tiktoken==0.7.0 \
+    certifi==2025.7.14 \
+    charset-normalizer==3.4.2 \
+    idna==3.10 \
+    requests==2.32.4 \
+    urllib3==2.5.0 \
+    typing-extensions \
+    python-dateutil \
+    pytz==2023.4
 
 # Copy application code
 COPY . .

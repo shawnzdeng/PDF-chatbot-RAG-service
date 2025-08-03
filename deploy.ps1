@@ -61,6 +61,8 @@ if (-not $SkipBuild) {
     if ($CPU) {
         Write-Host "🔨 Building RAG Chatbot Docker image (CPU-optimized)..." -ForegroundColor Blue
         .\build-docker.ps1 -CPU
+        # Tag the CPU image as latest for Kubernetes
+        docker tag rag-chatbot:cpu rag-chatbot:latest
     } else {
         Write-Host "🔨 Building RAG Chatbot Docker image (with GPU support)..." -ForegroundColor Blue
         .\build-docker.ps1

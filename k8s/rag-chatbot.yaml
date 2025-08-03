@@ -6,7 +6,7 @@ metadata:
   labels:
     app: rag-chatbot
 spec:
-  replicas: 2
+  replicas: 1  # Reduce to 1 for Minikube memory constraints
   selector:
     matchLabels:
       app: rag-chatbot
@@ -17,11 +17,13 @@ spec:
     spec:
       containers:
       - name: rag-chatbot
-        image: rag-chatbot:cpu  # Use CPU-optimized image by default
+        image: rag-chatbot:latest  # Use the latest built image
         imagePullPolicy: Never  # For local Minikube development
         ports:
         - containerPort: 8501
           name: http
+        - containerPort: 8502
+          name: metrics
         env:
         - name: OPENAI_API_KEY
           valueFrom:
@@ -68,6 +70,9 @@ spec:
   - port: 8501
     targetPort: 8501
     name: http
+  - port: 8502
+    targetPort: 8502
+    name: metrics
   selector:
     app: rag-chatbot
   type: ClusterIP

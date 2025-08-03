@@ -28,7 +28,7 @@ data:
 
       - job_name: 'rag-chatbot'
         static_configs:
-          - targets: ['rag-chatbot-service:8501']
+          - targets: ['rag-chatbot-service:8502']
         metrics_path: '/metrics'
         scrape_interval: 30s
 

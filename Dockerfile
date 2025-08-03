@@ -66,13 +66,31 @@ RUN pip install --no-cache-dir \
 # Copy application code
 COPY . .
 
-# Create non-root user for security
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/.streamlit /app/.cache /tmp/streamlit && \
+    chmod 777 /app/.streamlit /app/.cache /tmp/streamlit
+
+# Set environment variables for Streamlit - use /tmp for home to avoid permission issues
+ENV HOME=/tmp
+ENV STREAMLIT_SERVER_HEADLESS=true
+ENV STREAMLIT_SERVER_ENABLE_CORS=false
+ENV STREAMLIT_SERVER_ENABLE_XSRF_PROTECTION=false
+ENV STREAMLIT_GLOBAL_DISABLE_STREAMLIT_UPDATES=true
+ENV STREAMLIT_GLOBAL_SHARING_MODE="off"
+ENV STREAMLIT_GLOBAL_DATA_DIR="/app/.streamlit"
+ENV STREAMLIT_BROWSER_GATHER_USAGE_STATS=false
+ENV STREAMLIT_CONFIG_DIR="/app/.streamlit"
+
+# Create non-root user for security - don't create home directory
+RUN groupadd -r appuser && useradd -r -g appuser -M appuser
+
+# Set ownership of app directory
 RUN chown -R appuser:appuser /app
+
 USER appuser
 
-# Expose port for Streamlit
-EXPOSE 8501
+# Expose port for Streamlit and metrics
+EXPOSE 8501 8502
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \

@@ -6,7 +6,7 @@ Add these routes to your Streamlit app for monitoring
 import streamlit as st
 import json
 from typing import Dict, Any
-from src.monitoring.metrics import rag_metrics
+from .metrics import rag_metrics
 
 def add_health_endpoints():
     """Add health and metrics endpoints to Streamlit app"""

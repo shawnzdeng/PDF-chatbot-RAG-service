@@ -20,7 +20,7 @@ scrape_configs:
   # RAG Chatbot application metrics
   - job_name: 'rag-chatbot'
     static_configs:
-      - targets: ['rag-chatbot:8501']
+      - targets: ['rag-chatbot:8502']
     metrics_path: '/metrics'
     scrape_interval: 30s
 

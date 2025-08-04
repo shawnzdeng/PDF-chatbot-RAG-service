@@ -6,7 +6,7 @@ metadata:
   labels:
     app: rag-chatbot
 spec:
-  replicas: 2
+  replicas: 1  # Reduce to 1 for Minikube memory constraints
   selector:
     matchLabels:
       app: rag-chatbot
@@ -14,25 +14,31 @@ spec:
     metadata:
       labels:
         app: rag-chatbot
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8502"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: rag-chatbot
-        image: rag-chatbot:cpu  # Use CPU-optimized image by default
+        image: rag-chatbot:latest  # Use the latest built image
         imagePullPolicy: Never  # For local Minikube development
         ports:
         - containerPort: 8501
           name: http
+        - containerPort: 8502
+          name: metrics
         env:
         - name: OPENAI_API_KEY
           valueFrom:
             secretKeyRef:
               name: rag-secrets
-              key: openai-api-key
+              key: OPENAI_API_KEY
         - name: QDRANT_API_KEY
           valueFrom:
             secretKeyRef:
               name: rag-secrets
-              key: qdrant-api-key
+              key: QDRANT_API_KEY
         envFrom:
         - configMapRef:
             name: rag-config
@@ -46,15 +52,23 @@ spec:
           httpGet:
             path: /_stcore/health
             port: 8501
-          initialDelaySeconds: 30
-          periodSeconds: 10
+          initialDelaySeconds: 45
+          periodSeconds: 15
+        # Remove problematic startup probe temporarily
+        # startupProbe:
+        #   httpGet:
+        #     path: /health
+        #     port: 8502
+        #   initialDelaySeconds: 15
+        #   periodSeconds: 5
+        #   failureThreshold: 10
         resources:
           requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
             memory: "1Gi"
             cpu: "500m"
-          limits:
-            memory: "2Gi"
-            cpu: "1000m"
 ---
 apiVersion: v1
 kind: Service
@@ -68,6 +82,9 @@ spec:
   - port: 8501
     targetPort: 8501
     name: http
+  - port: 8502
+    targetPort: 8502
+    name: metrics
   selector:
     app: rag-chatbot
   type: ClusterIP

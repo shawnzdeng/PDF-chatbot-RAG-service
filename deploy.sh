@@ -10,7 +10,7 @@ echo "🚀 Starting RAG Chatbot deployment on Minikube..."
 # Check if minikube is running
 if ! minikube status &> /dev/null; then
     echo "❌ Minikube is not running. Please start minikube first:"
-    echo "   minikube start --driver=docker --memory=8192 --cpus=4"
+    echo "   minikube start --driver=docker --memory=2200 --cpus=4 --disk-size=10g"
     exit 1
 fi
 

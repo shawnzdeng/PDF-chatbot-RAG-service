@@ -80,7 +80,9 @@ Write-Host "   minikube dashboard" -ForegroundColor White
 Write-Host ""
 Write-Host "⚠️  Don't forget to update the secrets with your actual API keys!" -ForegroundColor Yellow
 Write-Host "   # Update API Keys:" -ForegroundColor White
-Write-Host "   kubectl create secret generic rag-secrets --from-literal=OPENAI_API_KEY=YOUR_OPENAI_API_KEY --from-literal=QDRANT_API_KEY=YOUR_QDRANT_API_KEY -n rag-system --dry-run=client -o yaml | kubectl apply -f -" -ForegroundColor White
+$secretCommand = 'kubectl create secret generic rag-secrets --from-literal=OPENAI_API_KEY=YOUR_OPENAI_API_KEY --from-literal=QDRANT_API_KEY=YOUR_QDRANT_API_KEY -n rag-system --dry-run=client -o yaml | kubectl apply -f -'
+Write-Host "   $secretCommand" -ForegroundColor White
 Write-Host ""
 Write-Host "   # Or update the configmap for Qdrant URL:" -ForegroundColor White
-Write-Host "   kubectl patch configmap rag-config -n rag-system --patch '{`"data`":{`"QDRANT_URL`":`"https://your-cluster-url.qdrant.io:6333`"}}'" -ForegroundColor White
+$configCommand = 'kubectl patch configmap rag-config -n rag-system --patch "{""data"":{""QDRANT_URL"":""https://your-cluster-url.qdrant.io:6333""}}"'
+Write-Host "   $configCommand" -ForegroundColor White

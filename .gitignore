@@ -205,3 +205,13 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Kubernetes secrets and sensitive configs
+k8s/rag-secrets.yaml
+*.secret.yaml
+*.secrets.yaml
+
+# Environment files
+.env
+.env.local
+.env.*.local

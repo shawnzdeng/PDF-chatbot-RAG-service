@@ -24,6 +24,13 @@ if str(parent_dir) not in sys.path:
 from config import Config
 from .conversation_memory import ConversationMemory
 
+# Import metrics for tracking
+try:
+    from monitoring.metrics import rag_metrics
+except ImportError:
+    logger.warning("Metrics module not available")
+    rag_metrics = None
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -407,6 +414,10 @@ Answer:"""
             Query embedding vector
         """
         try:
+            # Record metrics for query embedding
+            if rag_metrics:
+                rag_metrics.record_query_embedding()
+            
             embedding = self.embeddings.embed_query(query)
             return embedding
         except Exception as e:
@@ -457,6 +468,11 @@ Answer:"""
             List of RetrievalResult objects
         """
         try:
+            # Record metrics for retrieval operation
+            if rag_metrics:
+                rag_metrics.record_retrieval()
+                rag_metrics.record_qdrant_operation("search")
+            
             # Enhance query with conversation context
             enhanced_query = self._enhance_query_with_context(query)
             
@@ -596,6 +612,10 @@ Answer:"""
             Generated answer
         """
         try:
+            # Record metrics for response generation
+            if rag_metrics:
+                rag_metrics.record_response_generation()
+            
             # Get conversation context if enabled
             conversation_context = ""
             has_conversation_context = False

@@ -27,6 +27,15 @@ logger = logging.getLogger(__name__)
 # Import RAG components
 from rag_engine.qdrant_rag import QdrantRAG
 from config import Config
+from monitoring.metrics import rag_metrics
+from monitoring.metrics_server import start_metrics_server
+
+# Start metrics server on port 8502
+try:
+    start_metrics_server()
+    logger.info("Metrics server started successfully")
+except Exception as e:
+    logger.error(f"Failed to start metrics server: {e}")
 
 # Page configuration
 st.set_page_config(
@@ -89,6 +98,12 @@ def initialize_rag_system():
                 rag = QdrantRAG.from_production_config()
                 st.session_state.rag_system = rag
                 st.session_state.conversation_started = False
+                
+                # Initialize session tracking
+                import uuid
+                if 'session_id' not in st.session_state:
+                    st.session_state.session_id = str(uuid.uuid4())
+                
                 logger.info("RAG system initialized successfully")
         return st.session_state.rag_system
     except Exception as e:
@@ -303,11 +318,17 @@ def main():
         
         # Chat input
         if prompt := st.chat_input("Ask a question about the documents..."):
+            # Record metrics for new request
+            rag_metrics.record_request("chat")
+            rag_metrics.record_session(st.session_state.get('session_id', 'default'))
+            
             # Add user message
             st.session_state.messages.append({"role": "user", "content": prompt})
             
             # Process with RAG system
             with st.spinner("Thinking..."):
+                import time
+                start_time = time.time()
                 try:
                     # Start conversation if not already started
                     if not st.session_state.conversation_started:
@@ -316,6 +337,10 @@ def main():
                     
                     # Get response using chat method for conversation continuity
                     result = rag.chat(prompt, include_sources_in_answer=False)
+                    
+                    # Record successful response time
+                    response_time = time.time() - start_time
+                    rag_metrics.record_request_duration(response_time, "chat")
                     
                     # Add assistant response
                     st.session_state.messages.append({
@@ -326,6 +351,11 @@ def main():
                     })
                     
                 except Exception as e:
+                    # Record error and response time
+                    response_time = time.time() - start_time
+                    rag_metrics.record_request_duration(response_time, "chat")
+                    rag_metrics.record_error("chat_error")
+                    
                     st.error(f"Error processing your question: {str(e)}")
                     logger.error(f"Error in chat processing: {traceback.format_exc()}")
                     

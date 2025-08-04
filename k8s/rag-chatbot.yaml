@@ -14,6 +14,10 @@ spec:
     metadata:
       labels:
         app: rag-chatbot
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8502"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
       - name: rag-chatbot
@@ -29,12 +33,12 @@ spec:
           valueFrom:
             secretKeyRef:
               name: rag-secrets
-              key: openai-api-key
+              key: OPENAI_API_KEY
         - name: QDRANT_API_KEY
           valueFrom:
             secretKeyRef:
               name: rag-secrets
-              key: qdrant-api-key
+              key: QDRANT_API_KEY
         envFrom:
         - configMapRef:
             name: rag-config
@@ -48,8 +52,16 @@ spec:
           httpGet:
             path: /_stcore/health
             port: 8501
-          initialDelaySeconds: 30
-          periodSeconds: 10
+          initialDelaySeconds: 45
+          periodSeconds: 15
+        # Remove problematic startup probe temporarily
+        # startupProbe:
+        #   httpGet:
+        #     path: /health
+        #     port: 8502
+        #   initialDelaySeconds: 15
+        #   periodSeconds: 5
+        #   failureThreshold: 10
         resources:
           requests:
             memory: "1Gi"

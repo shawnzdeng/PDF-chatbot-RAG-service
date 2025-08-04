@@ -61,7 +61,7 @@ docker-compose down
 
 ```powershell
 # Start Minikube
-minikube start --driver=docker --memory=8192 --cpus=4
+minikube start --driver=docker --memory=2200 --cpus=4 ----disk-size=10g
 
 # Deploy the entire stack
 .\deploy.ps1
@@ -74,7 +74,7 @@ kubectl get pods -n rag-system
 
 ```bash
 # Start Minikube
-minikube start --driver=docker --memory=8192 --cpus=4
+minikube start --driver=docker --memory=2200 --cpus=4 ----disk-size=10g
 
 # Make script executable and deploy
 chmod +x deploy.sh

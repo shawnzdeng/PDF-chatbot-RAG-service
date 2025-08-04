@@ -1,196 +1,194 @@
 {
-  "dashboard": {
-    "id": null,
-    "title": "RAG System Dashboard",
-    "description": "Monitoring dashboard for RAG Chatbot system",
-    "tags": ["rag", "chatbot", "monitoring"],
-    "style": "dark",
-    "timezone": "browser",
-    "refresh": "30s",
-    "time": {
-      "from": "now-1h",
-      "to": "now"
-    },
-    "panels": [
-      {
-        "id": 1,
-        "title": "Request Rate",
-        "type": "stat",
-        "targets": [
-          {
-            "expr": "rate(rag_requests_total[5m])",
-            "legendFormat": "Requests/sec"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "reqps",
-            "min": 0
-          }
-        },
-        "gridPos": {
-          "h": 8,
-          "w": 6,
-          "x": 0,
-          "y": 0
+  "id": null,
+  "title": "RAG System Dashboard",
+  "description": "Monitoring dashboard for RAG Chatbot system",
+  "tags": ["rag", "chatbot", "monitoring"],
+  "style": "dark",
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Request Rate",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "rate(rag_requests_total[5m])",
+          "legendFormat": "Requests/sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0
         }
       },
-      {
-        "id": 2,
-        "title": "Active Sessions",
-        "type": "stat",
-        "targets": [
-          {
-            "expr": "rag_active_sessions",
-            "legendFormat": "Sessions"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "min": 0
-          }
-        },
-        "gridPos": {
-          "h": 8,
-          "w": 6,
-          "x": 6,
-          "y": 0
-        }
-      },
-      {
-        "id": 3,
-        "title": "Response Time",
-        "type": "stat",
-        "targets": [
-          {
-            "expr": "rag_response_time_seconds_avg",
-            "legendFormat": "Avg Response Time"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "s",
-            "min": 0
-          }
-        },
-        "gridPos": {
-          "h": 8,
-          "w": 6,
-          "x": 12,
-          "y": 0
-        }
-      },
-      {
-        "id": 4,
-        "title": "Error Rate",
-        "type": "stat",
-        "targets": [
-          {
-            "expr": "rate(rag_errors_total[5m])",
-            "legendFormat": "Errors/sec"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "short",
-            "min": 0
-          }
-        },
-        "gridPos": {
-          "h": 8,
-          "w": 6,
-          "x": 18,
-          "y": 0
-        }
-      },
-      {
-        "id": 5,
-        "title": "System CPU Usage",
-        "type": "timeseries",
-        "targets": [
-          {
-            "expr": "rag_system_cpu_percent",
-            "legendFormat": "CPU %"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "percent",
-            "min": 0,
-            "max": 100
-          }
-        },
-        "gridPos": {
-          "h": 8,
-          "w": 12,
-          "x": 0,
-          "y": 8
-        }
-      },
-      {
-        "id": 6,
-        "title": "System Memory Usage",
-        "type": "timeseries",
-        "targets": [
-          {
-            "expr": "rag_system_memory_percent",
-            "legendFormat": "Memory %"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "percent",
-            "min": 0,
-            "max": 100
-          }
-        },
-        "gridPos": {
-          "h": 8,
-          "w": 12,
-          "x": 12,
-          "y": 8
-        }
-      },
-      {
-        "id": 7,
-        "title": "RAG Operations",
-        "type": "timeseries",
-        "targets": [
-          {
-            "expr": "rate(rag_query_embeddings_total[5m])",
-            "legendFormat": "Query Embeddings/sec"
-          },
-          {
-            "expr": "rate(rag_retrievals_total[5m])",
-            "legendFormat": "Retrievals/sec"
-          },
-          {
-            "expr": "rate(rag_response_generations_total[5m])",
-            "legendFormat": "Response Generations/sec"
-          }
-        ],
-        "fieldConfig": {
-          "defaults": {
-            "unit": "reqps",
-            "min": 0
-          }
-        },
-        "gridPos": {
-          "h": 8,
-          "w": 24,
-          "x": 0,
-          "y": 16
-        }
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 0
       }
-    ],
-    "templating": {
-      "list": []
     },
-    "annotations": {
-      "list": []
+    {
+      "id": 2,
+      "title": "Active Sessions",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "rag_active_sessions",
+          "legendFormat": "Sessions"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      }
     },
-    "schemaVersion": 36,
-    "version": 1
-  }
+    {
+      "id": 3,
+      "title": "Response Time",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "rag_response_time_seconds_avg",
+          "legendFormat": "Avg Response Time"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "min": 0
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      }
+    },
+    {
+      "id": 4,
+      "title": "Error Rate",
+      "type": "stat",
+      "targets": [
+        {
+          "expr": "rate(rag_errors_total[5m])",
+          "legendFormat": "Errors/sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "min": 0
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      }
+    },
+    {
+      "id": 5,
+      "title": "System CPU Usage",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rag_system_cpu_percent",
+          "legendFormat": "CPU %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      }
+    },
+    {
+      "id": 6,
+      "title": "System Memory Usage",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rag_system_memory_percent",
+          "legendFormat": "Memory %"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      }
+    },
+    {
+      "id": 7,
+      "title": "RAG Operations",
+      "type": "timeseries",
+      "targets": [
+        {
+          "expr": "rate(rag_query_embeddings_total[5m])",
+          "legendFormat": "Query Embeddings/sec"
+        },
+        {
+          "expr": "rate(rag_retrievals_total[5m])",
+          "legendFormat": "Retrievals/sec"
+        },
+        {
+          "expr": "rate(rag_response_generations_total[5m])",
+          "legendFormat": "Response Generations/sec"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "min": 0
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      }
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  },
+  "schemaVersion": 36,
+  "version": 1
 }
